@@ -78,6 +78,259 @@ class IndustryClassification:
 
 ###############################################################################
 ###############################################################################
+class Factors:
+
+    #--------------------------------------------------------------------------
+    def __init__(self, data):
+        self.open = data['open']
+        self.close = data['close']
+        self.high = data['high']
+        self.low = data['low']
+        self.pre_close = data['close'].shift()
+        self.vwap = data['vwap']
+        self.volume = data['volume']
+        self.amount = data['amount']
+
+        self.index = data.index
+        self.columns = self.close.columns
+
+        self.industry_class_1 = {
+            'PreciousMetal': ['au', 'ag'],
+            'IndustrialMetal': ['cu', 'zn', 'al', 'ni', 'pb', 'sn'],
+            'BlackChain': ['rb', 'j', 'i', 'jm', 'hc', 'SM', 'SF', 'FG', 'ZC'],
+            'EnergyChem': ['l', 'MA', 'pp', 'TA', 'ru', 'bu', 'v', 'sc'],
+            'Agriculture': ['cs', 'c', 'a', 'm', 'RM', 'y', 'p', 'OI', 'b'],
+            'SoftComm': ['CF', 'SR', 'jd', 'AP']}
+
+        self.industry_class_2 = {
+            'Metal': ['cu', 'zn', 'al', 'ni', 'pb', 'sn', 'au', 'ag'], 
+            'BlackChain': ['rb', 'j', 'i', 'jm', 'hc', 'SM', 'SF'], 
+            'EnergyChem': ['l', 'MA', 'pp', 'TA', 'ru', 'bu', 'v', 
+                           'sc', 'ZC', 'FG'], 
+            'Agri': ['CF', 'SR', 'a', 'm', 'RM', 'y', 'p', 'OI', 'cs', 'c'], 
+            'SoftComm': ['jd', 'AP']}
+
+        self.industry_class_3 = {
+            'Indust': ['cu', 'zn', 'al', 'ni', 'pb', 'sn', 'au', 'ag', 'rb', 
+                       'j', 'i', 'jm', 'hc', 'SM', 'SF', 'FG', 'l', 'MA', 
+                       'pp', 'TA', 'ru', 'bu', 'v', 'sc', 'ZC'], 
+            'Agri': ['a', 'm', 'RM', 'y', 'p', 'OI', 'cs', 'c', 'CF', 
+                     'SR', 'jd', 'AP']}
+
+        self.financial_futures = {
+            'Index': ['IF', 'IH', 'IC'], 
+            'Rate': ['TF', 'T', 'TS']}
+
+    #--------------------------------------------------------------------------
+    def time_series_rank(self, x):
+        return bn.rankdata(x)[-1]
+
+    #--------------------------------------------------------------------------
+    def get_liquid_contract_data(self, data_df, liquid_contract_df):
+        liquid_data_df = data_df.copy()
+
+        for column in liquid_contract_df.columns: 
+            if column in liquid_data_df.columns:
+                liquid_data_df.loc[:, column] = np.where(
+                    liquid_contract_df.loc[liquid_data_df.index, column] == 0, 
+                    np.nan, liquid_data_df.loc[:, column])
+
+        return liquid_data_df
+
+    #--------------------------------------------------------------------------
+    def industry_factors(self, industry_class_indicator, if_financial_futures):
+        if industry_class_indicator == 'industry_class_1':
+            final_industry_class = self.industry_class_1
+        elif industry_class_indicator == 'industry_class_2':
+            final_industry_class = self.industry_class_2
+        elif industry_class_indicator == 'industry_class_3':
+            final_industry_class = self.industry_class_3
+        else:
+            final_industry_class = {}
+
+        if if_financial_futures == True:
+            final_industry_class.update(self.financial_futures)
+
+        industry_factors_dict = {}
+        for industry, commodities in final_industry_class.items():
+            use_commodities = [ele for ele in commodities 
+                               if ele in self.columns]
+            factor_df = self.close * 0
+            factor_df[use_commodities] = 1
+            industry_factors_dict[industry] = factor_df
+
+        return industry_factors_dict
+
+    #--------------------------------------------------------------------------
+    def rsi(self, price, n = 14):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_price = price[column].dropna()
+
+            delta = column.price.diff()
+            dUp, dDown = delta.copy(), delta.copy()
+            dUp[dUp < 0] = 0
+            dDown[dDown > 0] = 0
+
+            RolUp = dUp.rolling(window = n).mean()
+            RolDown = dDown.rolling(window = n).mean().abs()
+            rs = RolUp / RolDown
+            rsi = 100.0 - (100.0 / (1.0 + rs))
+
+            alpha_df[column] = rsi.reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def ma_close_ratio(self, window = 20):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+
+            ma_close = column_close.rolling(window).mean()
+            ma_close_ratio = ma_close / column_close
+
+            alpha_df[column] = ma_close_ratio.reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_001(self, rolling_window, liquid_contract_df):
+        tmp_1_df = pd.DataFrame(index = self.index)
+        tmp_2_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_volume = self.volume[column].dropna()
+            column_close = self.close[column].dropna()
+            column_open = self.open[column].dropna()
+
+            tmp_1 = column_volume.diff()
+            tmp_2 = (column_close - column_open) / column_open
+
+            tmp_1_df[column] = tmp_1.reindex(tmp_1_df.index)
+            tmp_2_df[column] = tmp_2.reindex(tmp_2_df.index)
+
+        tmp_1_liquid = self.get_liquid_contract_data(
+            tmp_1_df, liquid_contract_df)
+        tmp_2_liquid = self.get_liquid_contract_data(
+            tmp_2_df, liquid_contract_df)
+
+        data1 = tmp_1_liquid.rank(axis = 1, pct = True)
+        data2 = tmp_2_liquid.rank(axis = 1, pct = True)
+
+        alpha_df = -data1.rolling(window = rolling_window).corr(
+            data2, pairwise = False)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_002(self, delay_window = 1):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_low = self.low[column].dropna()
+            column_high = self.high[column].dropna()
+
+            column_result = (
+                ((column_close - column_low) - (column_high - column_close)) 
+                / (column_high - column_low)).diff(delay_window)
+
+            alpha_df[column] = column_result.reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_003(self, delay_window = 1, rolling_window = 6):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            delay1 = column_close.shift(delay_window)
+            column_low = self.low[column].dropna()
+
+            condition1 = (column_close == delay1)
+            condition2 = (column_close > delay1)
+            condition3 = (column_close < delay1)
+
+            part2 = (np.log(column_close) 
+                     - np.log(np.minimum(delay1[condition2], 
+                                         column_low[condition2])))
+            part3 = (np.log(column_close) 
+                     - np.log(np.maximum(delay1[condition3], 
+                                         column_low[condition3])))
+
+            result = part2.fillna(0) + part3.fillna(0)
+            alpha = result.rolling(window = rolling_window).sum()
+
+            alpha_df[column] = alpha.reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_004(self, short_window = 2, long_window = 8, volume_window = 20):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            condition1 = (
+                (column_close.rolling(window = long_window).mean()
+                 + column_close.rolling(window = long_window).std()) 
+                < (column_close.rolling(window = short_window).mean()))
+            condition2 = (
+                (column_close.rolling(window = short_window).mean()) 
+                < (column_close.rolling(window = long_window).mean()
+                   - column_close.rolling(window = long_window).std()))
+            condition3 = (
+                1 <= (column_volume 
+                      / column_volume.rolling(window = volume_window).mean()))
+
+            indicator1 = pd.Series(np.ones(column_close.shape), 
+                                   index = column_close.index)
+            indicator2 = pd.Series(np.ones(column_close.shape), 
+                                   index = column_close.index)
+
+            part1 = indicator2[condition1].fillna(0)
+            part2 = (indicator1[~condition1][condition2]).fillna(0)
+            part3 = (indicator1[~condition1][
+                ~condition2][condition3]).fillna(0)
+            part4 = (indicator2[~condition1][
+                ~condition2][~condition3]).fillna(0)
+
+            alpha = part1 + part2 + part3 + part4
+            alpha_df[column] = alpha.reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_005(self, rank_window = 5, corr_window = 3):
+        alpha_df = pd.DateFrame(index = self.index)
+
+        for column in self.columns:
+            column_volume = self.volume[column].dropna()
+            column_high = self.high[column].dropna()
+
+            ts_volume = column_volume.rolling(window = rank_window).apply(
+                self.time_series_rank)
+            ts_high = column_high.rolling(window = rank_window).apply(
+                self.time_series_rank)
+
+            corr_ts = ts_high.rolling(window = rank_window).corr(
+                ts_volume, pairwise = False)
+
+            alpha = corr_ts.rolling(window = corr_window).max()
+
+            alpha_df[column] = alpha.reindex(alpha_df.index)
+
+        return alpha_df
+
+
+###############################################################################
+###############################################################################
 class PVFactors:
 
     #--------------------------------------------------------------------------
