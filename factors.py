@@ -138,7 +138,8 @@ class Factors:
         return liquid_data_df
 
     #--------------------------------------------------------------------------
-    def industry_factors(self, industry_class_indicator, if_financial_futures):
+    def industry_factors(self, industry_class_indicator, 
+                         if_financial_futures = False):
         if industry_class_indicator == 'industry_class_1':
             final_industry_class = self.industry_class_1
         elif industry_class_indicator == 'industry_class_2':
@@ -168,7 +169,7 @@ class Factors:
         for column in self.columns:
             column_price = price[column].dropna()
 
-            delta = column.price.diff()
+            delta = column_price.diff()
             dUp, dDown = delta.copy(), delta.copy()
             dUp[dUp < 0] = 0
             dDown[dDown > 0] = 0
@@ -327,6 +328,176 @@ class Factors:
             alpha_df[column] = alpha.reindex(alpha_df.index)
 
         return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_006(self, liquid_contract_df, open_mult = 0.85, diff_window = 4):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_open = self.open[column].dropna()
+            column_high = self.high[column].dropna()
+
+            condition1 = ((column_open* open_mult 
+                           + column_high * (1 - open_mult)).diff(
+                               diff_window) > 0)
+            condition2 = ((column_open_price * open_mult 
+                           + column_high * (1 - open_mult)).diff(
+                               diff_window) == 0)
+            condition3 = ((column_open_price * open_mult 
+                           + column_high * (1 - open_mult)).diff(
+                               diff_window) < 0)
+
+            indicator1 = pd.Series(np.ones(column_open.shape), 
+                                   index = column_open.index)
+            indicator2 = pd.Series(np.zeros(column_open.shape), 
+                                   index = column_open.index)
+            indicator3 = -pd.Series(np.ones(column_open.shape), 
+                                    index = column_open.index)
+
+            part1 = indicator1[condition1].fillna(0)
+            part2 = indicator2[condition2].fillna(0)
+            part3 = indicator3[condition3].fillna(0)
+
+            result = part1 + part2 + part3
+            alpha_df[column] = result.reindex(alpha_df.index)
+
+        alpha_liquid = self.get_liquid_contract_data(
+            alpha_df, liquid_contract_df)
+        final_alpha_df = alpha_liquid.rank(axis = 1, pct = True)
+
+        return final_alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_006_alter(self, liquid_contract_df, 
+                        open_mult = 0.85, diff_window = 4):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_open = self.open[column].dropna()
+            column_high = self.high[column].dropna()
+
+            result = np.log(column_open* open_mult 
+                            + column_high * (1 - open_mult)).diff(diff_window)
+
+            alpha_df[column] = result.reindex(alpha_df.index)
+
+        alpha_liquid = self.get_liquid_contract_data(
+            alpha_df, liquid_contract_df)
+        final_alpha_df = alpha_liquid.rank(axis = 1, pct = True)
+
+        return final_alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_007(self, liquid_contract_df, com_num_1 = 3, 
+                  com_num_2 = 3, com_num_3 = 3):
+        part_1_df = pd.DataFrame(index = self.index)
+        part_2_df = pd.DataFrame(index = self.index)
+        part_3_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_vwap = self.vwap[column].dropna()
+            column_close = self.close[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            part1 = np.maximum(column_vwap - column_close, com_num_1)
+            part2 = np.minimum(column_vwap - column_close, com_num_2)
+            part3 = column_volume.diff(com_num_3)
+
+            part_1_df[column] = part1.reindex(part_1_df.index)
+            part_2_df[column] = part2.reindex(part_2_df.index)
+            part_3_df[column] = part3.reindex(part_3_df.index)
+
+        part_1_liquid = self.get_liquid_contract_data(
+            part_1_df, liquid_contract_df)
+        part_2_liquid = self.get_liquid_contract_data(
+            part_2_df, liquid_contract_df)
+        part_3_liquid = self.get_liquid_contract_data(
+            part_3_df, liquid_contract_df)
+
+        part_1_rank = part_1_liquid.rank(axis = 1, pct = True)
+        part_2_rank = part_2_liquid.rank(axis = 1, pct = True)
+        part_3_rank = part_3_liquid.rank(axis = 1, pct = True)
+
+        alpha_df = part_1_rank + part_2_rank * part_3_rank
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_007_alter(self, liquid_contract_df, diff_window = 3):
+        part_1_df = pd.DataFrame(index = self.index)
+        part_2_df = pd.DataFrame(index = self.index)
+        part_3_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_vwap = self.vwap[column].dropna()
+            column_close = self.close[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            part1 = (np.log(column_vwap) - np.log(column_close)).rolling(
+                window = diff_window).max()
+            part2 = (np.log(column_vwap) - np.log(column_close)).rolling(
+                window = diff_window).min()
+            part3 = np.log(column_volume).diff(diff_window)
+
+            part_1_df[column] = part1.reindex(part_1_df.index)
+            part_2_df[column] = part2.reindex(part_2_df.index)
+            part_3_df[column] = part3.reindex(part_3_df.index)
+
+        part_1_liquid = self.get_liquid_contract_data(
+            part_1_df, liquid_contract_df)
+        part_2_liquid = self.get_liquid_contract_data(
+            part_2_df, liquid_contract_df)
+        part_3_liquid = self.get_liquid_contract_data(
+            part_3_df, liquid_contract_df)
+
+        part_1_rank = part_1_liquid.rank(axis = 1, pct = True)
+        part_2_rank = part_2_liquid.rank(axis = 1, pct = True)
+        part_3_rank = part_3_liquid.rank(axis = 1, pct = True)
+
+        alpha_df = part_1_rank + part_2_rank * part_3_rank
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_008(self, liquid_contract_df, 
+                  high_low_mult = 0.2, diff_window = 4):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_high = self.high[column].dropna()
+            column_low = self.low[column].dropna()
+            column_vwap = self.vwap[column].dropna()
+
+            temp = -np.log(
+                (column_high + column_low) * 0.5 * high_low_mult 
+                + column_vwap * (1 - high_low_mult)).diff(diff_window)
+
+            alpha_df[column] = temp.reindex(alpha_df.index)
+
+        alpha_liquid = self.get_liquid_contract_data(
+            alpha_df, liquid_contract_df)
+        final_alpha_df = alpha_liquid.rank(axis = 1, pct = True)
+
+        return final_alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_009(self, alpha = 2.0 / 7.0):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_high = self.high[column].dropna()
+            column_low = self.low[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            temp = (
+                ((column_high + column_low) * 0.5 
+                 - (column_high.shift() + column_low.shift()) * 0.5) 
+                * (column_high - column_low) / column_volume)
+            alpha_df[column] = temp.ewm(alpha = alpha).mean().reindex(
+                alpha_df.index)
+
+        return alpha_df
+
 
 
 ###############################################################################
