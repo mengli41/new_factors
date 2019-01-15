@@ -498,6 +498,89 @@ class Factors:
 
         return alpha_df
 
+    #--------------------------------------------------------------------------
+    def alpha_010(self, liquid_contract_df, std_window = 20, com_num = 5):
+        alpha_df = pd.DataFrame(index = self.index)
+        
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_ret = np.log(column_close).diff()
+            condition = (column_ret < 0)
+
+            part1 = (column_ret.rolling(
+                window = std_window).std()[condition]).fillna(0)
+            part2 = (column_close[~condition]).fillna(0)
+
+            result = np.maximum((part1 + part2) ** 2, com_num)
+            alpha_df[column] = result.reindex(alpha_df.index)
+
+        alpha_liquid = self.get_liquid_contract_data(
+            alpha_df, liquid_contract_df)
+        final_alpha_df = alpha_liquid.rank(axis = 1, pct = True)
+
+        return final_alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_010_alter(self, liquid_contract_df, 
+                        std_window = 20, com_num = 5):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_ret = np.log(column_close).diff()
+            condition = (column_ret < 0)
+
+            part1 = (column_ret.rolling(
+                window = std_window).std()[condition]).fillna(0)
+            part2 = (column_close[~condition]).fillna(0)
+
+            result = ((part1 + part2) ** 2).rolling(window = com_num).max()
+            alpha_df[column] = result.reindex(alpha_df.index)
+
+        alpha_liquid = self.get_liquid_contract_data(
+            alpha_df, liquid_contract_df)
+        final_alpha_df = alpha_liquid.rank(axis = 1, pct = True)
+
+        return final_alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_011(self, rolling_window = 6):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_low = self.low[column].dropna()
+            column_high = self.high[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            temp = (((column_close - column_low) 
+                     - (column_high - column_close)) 
+                    / (column_high - column_low))
+            result = temp * column_volume
+
+            alpha_df[column] = result.rolling(
+                window = rolling_window).sum().reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_011_alter(self, rolling_window = 6):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_low = self.low[column].dropna()
+            column_high = self.high[column].dropna()
+
+            temp = (((column_close - column_low) 
+                     - (column_high - column_close)) 
+                    / (column_high - column_low))
+
+            alpha_df[column] = temp.rolling(
+                window = rolling_window).sum().reindex(alpha_df.index)
+
+        return alpha_df
+
 
 
 ###############################################################################
