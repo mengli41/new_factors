@@ -309,7 +309,7 @@ class Factors:
 
     #--------------------------------------------------------------------------
     def alpha_005(self, rank_window = 5, corr_window = 3):
-        alpha_df = pd.DateFrame(index = self.index)
+        alpha_df = pd.DataFrame(index = self.index)
 
         for column in self.columns:
             column_volume = self.volume[column].dropna()
