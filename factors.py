@@ -81,15 +81,22 @@ class IndustryClassification:
 class Factors:
 
     #--------------------------------------------------------------------------
-    def __init__(self, data):
+    def __init__(self, data, daily_data = True):
         self.open = data['open']
         self.close = data['close']
         self.high = data['high']
         self.low = data['low']
         self.pre_close = data['close'].shift()
-        self.vwap = data['vwap']
         self.volume = data['volume']
-        self.amount = data['amount']
+
+        # If the data is daily-based, then the DataFrame contains the 
+        # columns of vwap and amount. But if the data is intraday, 
+        # the DataFrame may not contain the two columns. Therefore we 
+        # need to give the indicator whether the data is daily or not, 
+        # in case of class initiation error.
+        if daily_data:
+            self.vwap = data['vwap']
+            self.amount = data['amount']
 
         self.index = data.index
         self.columns = self.close.columns
@@ -163,11 +170,11 @@ class Factors:
         return industry_factors_dict
 
     #--------------------------------------------------------------------------
-    def rsi(self, price, n = 14):
+    def rsi(self, n = 14):
         alpha_df = pd.DataFrame(index = self.index)
 
         for column in self.columns:
-            column_price = price[column].dropna()
+            column_price = self.close[column].dropna()
 
             delta = column_price.diff()
             dUp, dDown = delta.copy(), delta.copy()
@@ -722,6 +729,140 @@ class Factors:
         part_1_rank = part_1_liquid.rank(axis = 1, pct = True)
 
         alpha_df = (part_1_rank ** part_2_df)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_018(self, delay_window = 5):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            delay_close = column_close.shift(delay_window)
+
+            alpha = column_close / delay_close
+            alpha_df[column] = alpha.reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_019(self, delay_window = 5):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_delay = column_close.shift(delay_window)
+
+            condition_1 = column_close < column_delay
+            condition_3 = column_close > column_delay
+
+            part_1 = ((column_close[condition_1] - column_delay[condition_1]) 
+                      / column_delay[condition_1])
+            part_1 = part_1.fillna(0)
+
+            part_2 = ((column_close[condition_3] - column_delay[condition_3]) 
+                      / column_close[condition_3])
+            part_2 = part_2.fillna(0)
+
+            result = part_1 + part_2
+            alpha_df[column] = result.reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_020(self, delay_window = 6):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_delay = column_close.shift(delay_window)
+
+            result = (column_close - column_delay) * 100 / column_delay
+            alpha_df[column] = result.reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_021(self, close_rolling_window = 6, minimum_estimate_size = 6):
+        '''
+        The calculation process of this factor may need careful check.
+        '''
+        alpha_df = pd.DataFrame(index = self.index)
+
+        part_2 = np.arange(1, close_rolling_window + 1)
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            part_1 = column_close.rolling(
+                window = close_rolling_window).mean()
+
+            N = part_1.shape[0]
+            date_list = [
+                [part_1.index[i-close_rolling_window+1], part_1.index[i]] 
+                for i in range(close_rolling_window-1, N)]
+
+            beta_df = pd.DataFrame(
+                index = part_1.index[close_rolling_window:])
+
+            estimate_df = pd.DataFrame(index = part_1.index)
+            estimate_df[column] = part_1
+            estimate_df['const'] = 1
+
+            for date_pair in date_list:
+                start_date = date_pair[0]
+                end_date = date_pair[1]
+
+                data_df = estimate_df.loc[start_date:end_date]
+                date_df['x'] = part_2.copy()
+                data_df = data_df.dropna()
+
+                if data_df.shape[0] >= minimum_estimate_size:
+                    x = np.array(data_df.loc[:, ['x', 'const']])
+                    x = x.reshape((len(x), 2))
+                    y = np.array(data_df.loc[:, column])
+
+                    beta = np.linalg.inv(x.T.dot(x)).dot(x.T).dot(y)
+                    beta_df.loc[end_date, column] = beta[0]
+                else:
+                    beta_df.loc[end_date, column] = np.nan
+
+            alpha_df[column] = beta_df.reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_021_alter(self, close_rolling_window = 6):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        part_2 = np.arange(1, close_rolling_window + 1)
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            part_1 = column_close.rolling(
+                window = close_rolling_window).mean()
+
+            result = part_1.rolling(window = close_rolling_window).apply(
+                lambda x: np.corrcoef(x, part_2)[0,1])
+            alpha_df[column] = result.reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_022(self, close_window = 6, shift_window = 3, 
+                  alpha = 1.0 / 12.0):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+
+            part_1 = ((column_close 
+                       - column_close.rolling(window = close_window).mean()) 
+                      / column_close.rolling(window = close_window).mean())
+            temp = ((column_close 
+                     - column_close.rolling(window = close_window).mean()) 
+                    / self.close.rolling(window = close_window).mean())
+            part_2 = temp.shift(shift_window)
+
+            result = part_1 - part_2
+            alpha_df[column] = result.reindex(alpha_df.index)
 
         return alpha_df
 
