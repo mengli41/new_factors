@@ -299,20 +299,62 @@ class Factors:
 
             indicator1 = pd.Series(np.ones(column_close.shape), 
                                    index = column_close.index)
-            indicator2 = pd.Series(np.ones(column_close.shape), 
-                                   index = column_close.index)
+            indicator2 = -pd.Series(np.ones(column_close.shape), 
+                                    index = column_close.index)
 
-            part1 = indicator2[condition1].fillna(0)
-            part2 = (indicator1[~condition1][condition2]).fillna(0)
+            part1 = indicator2[condition1].reindex(column_close.index).fillna(0)
+            part2 = (indicator1[~condition1][condition2]).reindex(
+                column_close.index).fillna(0)
             part3 = (indicator1[~condition1][
-                ~condition2][condition3]).fillna(0)
+                ~condition2][condition3]).reindex(column_close.index).fillna(0)
             part4 = (indicator2[~condition1][
-                ~condition2][~condition3]).fillna(0)
+                ~condition2][~condition3]).reindex(column_close.index).fillna(0)
 
             alpha = part1 + part2 + part3 + part4
             alpha_df[column] = alpha.reindex(alpha_df.index)
 
         return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_004_alter(self, short_window = 2, long_window = 8, 
+                        volume_window = 20, rolling_sum_window = 20):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            condition1 = (
+                (column_close.rolling(window = long_window).mean()
+                 + column_close.rolling(window = long_window).std()) 
+                < (column_close.rolling(window = short_window).mean()))
+            condition2 = (
+                (column_close.rolling(window = short_window).mean()) 
+                < (column_close.rolling(window = long_window).mean()
+                   - column_close.rolling(window = long_window).std()))
+            condition3 = (
+                1 <= (column_volume 
+                      / column_volume.rolling(window = volume_window).mean()))
+
+            indicator1 = pd.Series(np.ones(column_close.shape), 
+                                   index = column_close.index)
+            indicator2 = -pd.Series(np.ones(column_close.shape), 
+                                    index = column_close.index)
+
+            part1 = indicator2[condition1].reindex(column_close.index).fillna(0)
+            part2 = (indicator1[~condition1][condition2]).reindex(
+                column_close.index).fillna(0)
+            part3 = (indicator1[~condition1][
+                ~condition2][condition3]).reindex(column_close.index).fillna(0)
+            part4 = (indicator2[~condition1][
+                ~condition2][~condition3]).reindex(column_close.index).fillna(0)
+
+            alpha = part1 + part2 + part3 + part4
+            alpha_df[column] = alpha.reindex(alpha_df.index)
+
+        final_alpha_df = alpha_df.rolling(window = rolling_sum_window).sum()
+
+        return final_alpha_df
 
     #--------------------------------------------------------------------------
     def alpha_005(self, rank_window = 5, corr_window = 3):
@@ -344,13 +386,13 @@ class Factors:
             column_open = self.open[column].dropna()
             column_high = self.high[column].dropna()
 
-            condition1 = ((column_open* open_mult 
+            condition1 = ((column_open * open_mult 
                            + column_high * (1 - open_mult)).diff(
                                diff_window) > 0)
-            condition2 = ((column_open_price * open_mult 
+            condition2 = ((column_open * open_mult 
                            + column_high * (1 - open_mult)).diff(
                                diff_window) == 0)
-            condition3 = ((column_open_price * open_mult 
+            condition3 = ((column_open * open_mult 
                            + column_high * (1 - open_mult)).diff(
                                diff_window) < 0)
 
@@ -361,9 +403,9 @@ class Factors:
             indicator3 = -pd.Series(np.ones(column_open.shape), 
                                     index = column_open.index)
 
-            part1 = indicator1[condition1].fillna(0)
-            part2 = indicator2[condition2].fillna(0)
-            part3 = indicator3[condition3].fillna(0)
+            part1 = indicator1[condition1].reindex(column_open.index).fillna(0)
+            part2 = indicator2[condition2].reindex(column_open.index).fillna(0)
+            part3 = indicator3[condition3].reindex(column_open.index).fillna(0)
 
             result = part1 + part2 + part3
             alpha_df[column] = result.reindex(alpha_df.index)
@@ -515,8 +557,10 @@ class Factors:
             condition = (column_ret < 0)
 
             part1 = (column_ret.rolling(
-                window = std_window).std()[condition]).fillna(0)
-            part2 = (column_close[~condition]).fillna(0)
+                window = std_window).std()[condition]).reindex(
+                    column_ret.index).fillna(0)
+            part2 = (column_close[~condition]).reindex(
+                column_ret.index).fillna(0)
 
             result = np.maximum((part1 + part2) ** 2, com_num)
             alpha_df[column] = result.reindex(alpha_df.index)
@@ -538,8 +582,10 @@ class Factors:
             condition = (column_ret < 0)
 
             part1 = (column_ret.rolling(
-                window = std_window).std()[condition]).fillna(0)
-            part2 = (column_close[~condition]).fillna(0)
+                window = std_window).std()[condition]).reindex(
+                    column_ret.index).fillna(0)
+            part2 = (column_close[~condition]).reindex(
+                column_close.index).fillna(0)
 
             result = ((part1 + part2) ** 2).rolling(window = com_num).max()
             alpha_df[column] = result.reindex(alpha_df.index)
