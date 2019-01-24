@@ -317,7 +317,7 @@ class Factors:
 
     #--------------------------------------------------------------------------
     def alpha_004_alter(self, short_window = 2, long_window = 8, 
-                        volume_window = 20, rolling_sum_window = 20):
+                        rolling_sum_window = 20, volume_window = 20):
         alpha_df = pd.DataFrame(index = self.index)
 
         for column in self.columns:
@@ -651,9 +651,9 @@ class Factors:
             temp_2 = (column_close - column_vwap).abs()
             temp_2_df[column] = temp_2.reindex(temp_2_df.index)
 
-        temp_1_liquid = self.get_liquid_contract(
+        temp_1_liquid = self.get_liquid_contract_data(
             temp_1_df, liquid_contract_df)
-        temp_2_liquid = self.get_liquid_contract(
+        temp_2_liquid = self.get_liquid_contract_data(
             temp_2_df, liquid_contract_df)
 
         part1 = temp_1_liquid.rank(axis = 1, pct = True)
@@ -683,7 +683,7 @@ class Factors:
 
         for column in self.columns:
             column_high = self.high[column].dropna()
-            column_low = self.low[column].dropna
+            column_low = self.low[column].dropna()
             column_vwap = self.vwap[column].dropna()
 
             result = (np.log((column_high * column_low) ** 0.5) 
@@ -804,11 +804,11 @@ class Factors:
 
             part_1 = ((column_close[condition_1] - column_delay[condition_1]) 
                       / column_delay[condition_1])
-            part_1 = part_1.fillna(0)
+            part_1 = part_1.reindex(column_close.index).fillna(0)
 
             part_2 = ((column_close[condition_3] - column_delay[condition_3]) 
                       / column_close[condition_3])
-            part_2 = part_2.fillna(0)
+            part_2 = part_2.reindex(column_close.index).fillna(0)
 
             result = part_1 + part_2
             alpha_df[column] = result.reindex(alpha_df.index)
@@ -858,7 +858,7 @@ class Factors:
                 end_date = date_pair[1]
 
                 data_df = estimate_df.loc[start_date:end_date]
-                date_df['x'] = part_2.copy()
+                data_df['x'] = part_2.copy()
                 data_df = data_df.dropna()
 
                 if data_df.shape[0] >= minimum_estimate_size:
