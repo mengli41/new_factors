@@ -904,10 +904,10 @@ class Factors:
                       / column_close.rolling(window = close_window).mean())
             temp = ((column_close 
                      - column_close.rolling(window = close_window).mean()) 
-                    / self.close.rolling(window = close_window).mean())
+                    / column_close.rolling(window = close_window).mean())
             part_2 = temp.shift(shift_window)
 
-            result = part_1 - part_2
+            result = (part_1 - part_2).ewm(alpha = alpha).mean()
             alpha_df[column] = result.reindex(alpha_df.index)
 
         return alpha_df
