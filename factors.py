@@ -914,6 +914,141 @@ class Factors:
 
         return alpha_df
 
+    #--------------------------------------------------------------------------
+    def alpha_023(self, shift_window = 1, 
+                  rolling_window = 20, alpha = 1.0/20.0):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+
+            condition1 = (column_close > column_close.shift(shift_window))
+
+            temp1 = column_close.rolling(
+                window = rolling_window).std()[condition1]
+            temp1 = temp1.fillna(0)
+
+            temp2 = column_close.rolling(
+                window = rolling_window).std()[~condition1]
+            temp2 = temp2.fillna(0)
+
+            part1 = temp1.ewm(alpha = alpha).mean()
+            part2 = temp2.ewm(alpha = alpha).mean()
+
+            result = part1 * 100 / (part1 + part2)
+            alpha_df[column] = result.reindex(alpha_df.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_024(self, shift_window = 5, alpha = 1.0/5.0):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+
+            delay = column_close.shift(shift_window)
+            result = column_close - delay
+            final_result = result.ewm(alpha = alpha).mean()
+
+            alpha_df[column] = final_result
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_024_alter(self, shift_window = 5, alpha = 1.0/5.0):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+
+            delay = self.close.shift(shift_window)
+            result = np.log(column_close) - np.log(delay)
+            final_result = result.ewm(alpha = alpha).mean()
+
+            alpha_df[column] = final_result
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_025(self, liquid_contract_df, close_shift_window = 7, 
+                  linear_decay_window = 9, volume_window = 20, 
+                  mom_window = 250):
+        part1 = pd.DataFrame(index = self.index)
+        part2 = pd.DataFrame(index = self.index)
+        part3 = pd.DataFrame(index = self.index)
+
+        n = linear_decay_window
+        linear_decay_seq = np.array([2*i/(n*(n+1)) for i in range(1, n+1)])
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            tmp_part1 = column_close - column_close.shift(close_shift_window)
+
+            tmp_part2 = (column_volume 
+                         / column_volume.rolling(volume_window).mean())
+            tmp_part2 = tmp_part2.rolling(linear_decay_window).apply(
+                lambda x: np.sum(x * linear_decay_seq))
+
+            tmp_part3 = np.log(column_close).diff().rolling(mom_window).sum()
+
+            part1[column] = tmp_part1.reindex(self.index)
+            part2[column] = tmp_part2.reindex(self.index)
+            part3[column] = tmp_part3.reindex(self.index)
+
+        part1_liquid = self.get_liquid_contract_data(part1, liquid_contract_df)
+        part2_liquid = self.get_liquid_contract_data(part2, liquid_contract_df)
+        part3_liquid = self.get_liquid_contract_data(part3, liquid_contract_df)
+
+        part1_rank = part1_liquid.rank(axis = 1, pct = True)
+        part2_rank = part2_liquid.rank(axis = 1, pct = True)
+        part3_rank = part3_liquid.rank(axis = 1, pct = True)
+
+        alpha_df = -part1_rank * (1 - part2_rank) * (1 + part3_rank)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_026(self, close_window = 7, shift_window = 5, vwap_window = 230): 
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_vwap = self.vwap[column].dropna()
+
+            part1 = (column_close.rolling(window = close_window).mean() 
+                     - column_close)
+            delay = column_close.shift(shift_window)
+            part2 = column_vwap.rolling(window = vwap_window).corr(delay)
+
+            alpha = part1 + part2
+            alpha_df[column] = alpha.reindex(self.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_026_alter(self, close_window = 7, 
+                        shift_window = 5, vwap_window = 230): 
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_vwap = self.vwap[column].dropna()
+
+            part1 = (
+                np.log(column_close.rolling(window = close_window).mean()) 
+                - np.log(column_close))
+            delay = column_close.shift(shift_window)
+            part2 = column_vwap.rolling(window = vwap_window).corr(delay)
+
+            alpha = part1 + part2
+            alpha_df[column] = alpha.reindex(self.index)
+
+        return alpha_df
+
+
 
 ###############################################################################
 ###############################################################################
