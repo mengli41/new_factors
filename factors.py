@@ -1048,6 +1048,92 @@ class Factors:
 
         return alpha_df
 
+    #--------------------------------------------------------------------------
+    def alpha_028(self, rolling_window = 9, alpha = 1.0/3.0, 
+                  part1_multi = 3, part2_multi = 2):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_high = self.high[column].dropna()
+            column_low = self.low[column].dropna()
+
+            temp1 = (column_close 
+                     - column_low.rolling(window = rolling_window).min())
+            temp2 = (column_high.rolling(window = rolling_window).max() 
+                     - column_low.rolling(window = rolling_window).min())
+            part1 = (part1_multi 
+                     * (temp1 * 100 / temp2).ewm(alpha = alpha).mean())
+
+            temp3 = (temp1 * 100 / temp2).ewm(alpha = alpha).mean()
+            part2 = part2_multi * temp3.ewm(alpha = alpha).mean()
+
+            result = part1 - part2
+            alpha_df[column] = result.reindex(self.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_029(self, delay_window = 6):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            delay = column_close.shift(delay_window)
+            result = (column_close - delay) * column_volume / delay
+
+            alpha_df[column] = result.reindex(self.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_031(self, close_window = 12):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+
+            result = (
+                (column_close 
+                 - column_close.rolling(window = close_window).mean()) 
+                / column_close.rolling(window = close_window).mean() * 100)
+
+            alpha_df[column] = result.reindex(self.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_034(self, close_window = 12):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+
+            result = (column_close.rolling(window = close_window).mean() 
+                      / column_close)
+
+            alpha_df[column] = result.reindex(self.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_038(self, rolling_window = 20, diff_window = 2):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_high = self.high[column].dropna()
+
+            sum_20 = (column_high.rolling(window = rolling_window).sum() 
+                      / float(rolling_window))
+            delta2 = column_high.diff(diff_window)
+            condition = (sum_20 < column_high)
+            result = -delta2[condition].fillna(0)
+
+            alpha_df[column] = result.reindex(self.index)
+
+        return alpha_df
 
 
 ###############################################################################
