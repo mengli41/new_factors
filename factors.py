@@ -1299,3 +1299,202 @@ class Factors:
             alpha_df[column] = result.reindex(self.index)
 
         return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_039(self, liquid_contract_df, 
+                  weight_window_1 = 8, weight_window_2 = 12, 
+                  close_window = 2, vwap_weight = 0.3, 
+                  volume_mean_window = 180, volume_sum_window = 37, 
+                  corr_window = 14):
+        n = weight_window_1
+        m = weight_window_2
+        weight_1 = np.array([2*i/(n*(n+1)) for i in range(1, n+1)])
+        weight_2 = np.array([2*i/(m*(m+1)) for i in range(1, m+1)])
+
+        part_1_df = pd.DataFrame(index = self.index)
+        part_2_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_vwap = self.vwap[column].dropna()
+            column_open = self.open[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            column_close_return = np.log(column_close).diff(close_window)
+
+            part_1 = column_close_return.rolling(n).apply(
+                lambda x: x*weight_1)
+            part_1_df[column] = part_1.reindex(self.index)
+
+            combined_price = (column_vwap * vwap_weight 
+                              + column_open * (1 - vwap_weight))
+            volume_mean = column_volume.rolling(volume_mean_window).mean()
+            volume_sum = volume_mean.rolling(volume_sum_window).sum()
+            corr_df = combined_price.rolling(corr_window).corr(volume_sum)
+            corr_df[corr_df >= 1.0] = 1.0
+            corr_df[corr_df <= -1.0] = -1.0
+            corr_df = corr_df.fillna(0)
+
+            part_2 = corr_df.rolling(m).apply(lambda x: x*weight_2)
+            part_2_df[column] = part_2.reindex(self.index)
+
+        part_1_liquid = self.get_liquid_contract_data(
+            part_1_df, liquid_contract_df)
+        part_2_liquid = self.get_liquid_contract_data(
+            part_2_df, liquid_contract_df)
+
+        part_1_rank = part_1_liquid.rank(axis = 1, pct = True)
+        part_2_rank = part_2_liquid.rank(axis = 1, pct = True)
+
+        alpha_df = part_1_rank - part_2_rank
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_040(self, close_shift_window = 1, volume_window = 26):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            condition = (column_close > column_close.shift(close_shift_window))
+
+            volume_up = column_volume[condition].fillna(0)
+            volume_up_sum = volume_up.rolling(volume_window).sum()
+
+            volume_down = column_volume[~condition].fillna(0)
+            volume_down_sum = volume_down.rolling(volume_window).sum()
+
+            alpha = 100 * volume_up_sum / float(volume_down_sum)
+            alpha_df[column] = alpha.reindex(self.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_041(self, liquid_contract_df, 
+                  vwap_window = 3, price_threshold = 5):
+        part_1_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_vwap = self.vwap[column].dropna()
+
+            column_vwap_gap = column_vwap.diff(vwap_window)
+            part_1 = np.maximum(column_vwap_gap, price_threshold)
+            part_1_df[column] = part_1.reindex(self.index)
+
+        part_1_liquid = self.get_liquid_contract_data(
+            part_1_df, liquid_contract_df)
+        alpha_df = part_1_liquid.rank(axis = 1, pct = True)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_042(self, liquid_contract_df, corr_window = 10, std_window = 10):
+        part_1_df = pd.DataFrame(index = self.index)
+        part_2_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_high = self.high[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            part_1 = column_high.rolling(corr_window).corr(column_volume)
+            part_1[part_1 >= 1.0] = 1.0
+            part_1[part_1 <= -1.0] = -1.0
+            part_1 = part_1.fillna(0)
+            part_1_df[column] = part_1.reindex(self.index)
+
+            part_2 = column_high.rolling(std_window).std()
+            part_2_df[column] = part_2.reindex(self.index)
+
+        part_2_liquid = self.get_liquid_contract_data(
+            part_2_df, liquid_contract_df)
+        part_2_rank = part_2_liquid.rank(axis = 1, pct = True)
+
+        alpha_df = -part_1_df * part_2_rank
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_043(self, close_window = 1, sum_window = 6):
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            condition_1 = (column_close > column_close.shift(close_window))
+            condition_2 = (column_close < column_close.shift(close_window))
+
+            part_1 = column_volume[condition_1].fillna(0)
+            part_2 = -column_volume[condition_2].fillna(0)
+            
+            result = part_1 + part_2
+            alpha = result.rolling(sum_window).sum()
+            alpha_df[column] = alpha.reindex(self.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_044(self, weight_window_1 = 6, weight_window_2 = 10, 
+                  volume_mean_window = 10, corr_window = 7, 
+                  ts_window_1 = 4, vwap_window = 3, ts_window_2 = 15):
+        n = weight_window_1
+        m = weight_window_2
+        weight_1 = np.array([2*i/(n*(n+1)) for i in range(1, n+1)])
+        weight_2 = np.array([2*i/(m*(m+1)) for i in range(1, m+1)])
+        alpha_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_low = self.low[column].dropna()
+            column_volume = self.volume[column].dropna()
+            column_vwap = self.vwap[column].dropna()
+
+            volume_mean = column_volume.rolling(volume_mean_window).mean()
+            tmp_1 = column_low.rolling(corr_window).corr(volume_mean)
+            part_1 = tmp_1.rolling(n).apply(lambda x: x*weight_1)
+            part_1_ts_rank = part_1.rolling(ts_window_1).apply(
+                self.time_series_rank)
+
+            vwap_diff = np.log(column_vwap).diff(vwap_window)
+            part_2 = vwap_diff.rolling(m).apply(lambda x: x*weight_2)
+            part_2_ts_rank = part_2.rolling(ts_window_2).apply(
+                self.time_series_rank)
+
+            alpha = part_1_ts_rank + part_2_ts_rank
+            alpha_df[column] = alpha.reindex(self.index)
+
+        return alpha_df
+
+    #--------------------------------------------------------------------------
+    def alpha_045(self, liquid_contract_df, 
+                  close_weight = 0.6, shift_window = 1, 
+                  volume_mean_window = 150, corr_window = 15):
+        part_1_df = pd.DataFrame(index = self.index)
+        part_2_df = pd.DataFrame(index = self.index)
+
+        for column in self.columns:
+            column_close = self.close[column].dropna()
+            column_open = self.open[column].dropna()
+            column_vwap = self.vwap[column].dropna()
+            column_volume = self.volume[column].dropna()
+
+            combined_price = (column_close * close_weight 
+                              + column_open * (1 - close_weight))
+            part_1 = np.log(combined_price).diff(shift_window)
+            part_1_df[column] = part_1.reindex(self.index)
+
+            volume_mean = column_volume.rolling(volume_mean_window).mean()
+            part_2 = column_vwap.rolling(corr_window).corr(volume_mean)
+            part_2_df[column] = part_2.reindex(self.index)
+
+        part_1_liquid = self.get_liquid_contract_data(
+            part_1_df, liquid_contract_df)
+        part_2_liquid = self.get_liquid_contract_data(
+            part_2_df, liquid_contract_df)
+
+        part_1_rank = part_1_liquid.rank(axis = 1, pct = True)
+        part_2_rank = part_2_liquid.rank(axis = 1, pct = True)
+        alpha_df = part_1_rank * part_2_rank
+
+        return alpha_045
